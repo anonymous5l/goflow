@@ -239,8 +239,14 @@ func (ctx *ContextImpl) Handle(handle *fasthttp.RequestCtx) (err error) {
 	request := NewRequestImpl(handle)
 
 	for _, m := range ctx.bmiddleware {
-		if err = m.handle(request); err == general.End {
+		err = m.handle(request)
+
+		if err == general.End {
 			break
+		}
+
+		if err == general.Abort {
+			return nil
 		}
 	}
 
@@ -252,13 +258,27 @@ func (ctx *ContextImpl) Handle(handle *fasthttp.RequestCtx) (err error) {
 				if err == general.End {
 					break
 				}
+
+				if err == general.Abort {
+					return nil
+				}
+
+				if err != nil {
+					console.Err("goflow: %s %s flow error %s", m, p, err)
+				}
 			}
 		}
 	}
 
 	for _, m := range ctx.amiddleware {
-		if err = m.handle(request); err == general.End {
+		err = m.handle(request)
+
+		if err == general.End {
 			break
+		}
+
+		if err == general.Abort {
+			return nil
 		}
 	}
 

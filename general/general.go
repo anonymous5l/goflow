@@ -14,3 +14,4 @@ var PATCH ContextHandleMethod = ContextHandleMethod("PATCH")
 var OPTIONS ContextHandleMethod = ContextHandleMethod("OPTIONS")
 
 var End = errors.New("flow end")
+var Abort = errors.New("flow abort")
