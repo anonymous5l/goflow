@@ -32,10 +32,14 @@ func (self *RequestImpl) GetValue(key string) (interface{}, bool) {
 	return v, o
 }
 
+func (self *RequestImpl) Body() []byte {
+	return self.ctx.PostBody()
+}
+
 func (self *RequestImpl) JsonBody() (interface{}, error) {
 	var result interface{}
 
-	err := json.Unmarshal(self.ctx.PostBody(), &result)
+	err := json.Unmarshal(self.Body(), &result)
 
 	if err != nil {
 

@@ -13,6 +13,8 @@ type Request interface {
 	SetValue(key string, value interface{})
 	GetValue(key string) (interface{}, bool)
 
+	Body() []byte
+
 	JsonBody() (interface{}, error)
 	JsonMapBody() (map[string]interface{}, error)
 	JsonArrayBody() ([]interface{}, error)
