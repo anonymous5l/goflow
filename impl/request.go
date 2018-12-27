@@ -36,6 +36,14 @@ func (self *RequestImpl) Body() []byte {
 	return self.ctx.PostBody()
 }
 
+func (self *RequestImpl) URI() *fasthttp.URI {
+	return self.ctx.URI()
+}
+
+func (self *RequestImpl) QueryArgs() *fasthttp.Args {
+	return self.ctx.QueryArgs()
+}
+
 func (self *RequestImpl) JsonBody() (interface{}, error) {
 	var result interface{}
 

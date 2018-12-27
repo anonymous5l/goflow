@@ -14,6 +14,8 @@ type Request interface {
 	GetValue(key string) (interface{}, bool)
 
 	Body() []byte
+	URI() *fasthttp.URI
+	QueryArgs() *fasthttp.Args
 
 	JsonBody() (interface{}, error)
 	JsonMapBody() (map[string]interface{}, error)
