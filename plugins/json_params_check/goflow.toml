@@ -1,0 +1,34 @@
+[listen]
+type = "tcp"
+addr = "127.0.0.1:8080"
+
+[environment]
+debug = true
+
+[[flow]]
+name = "json_params_check"
+path = "json_params_check.so"
+
+[[flow.extra.nodes]]
+path = "/room.new"
+[flow.extra.nodes.params.boolTest]
+passing = false
+type = "bool"
+[flow.extra.nodes.params.openId]
+passing = false
+type = "map"
+[flow.extra.nodes.params.openId.params.realId]
+passing = false
+type = "str"
+[flow.extra.nodes.params.scriptName]
+passing = false
+type = "str"
+
+[[flow.extra.nodes]]
+path = "/room.exit"
+[flow.extra.nodes.params.openId]
+passing = false
+type = "str"
+[flow.extra.nodes.params.roomId]
+passing = false
+type = "str"

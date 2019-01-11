@@ -36,6 +36,10 @@ func (self *RequestImpl) Body() []byte {
 	return self.ctx.PostBody()
 }
 
+func (self *RequestImpl) Method() string {
+	return string(self.ctx.Method())
+}
+
 func (self *RequestImpl) URI() *fasthttp.URI {
 	return self.ctx.URI()
 }
