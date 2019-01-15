@@ -2,8 +2,8 @@ package impl
 
 import (
 	"encoding/json"
+	"github.com/anonymous5l/goflow/interfaces"
 	"github.com/valyala/fasthttp"
-	"goflow/interfaces"
 )
 
 type RequestImpl struct {

@@ -3,9 +3,9 @@ package main
 import (
 	"github.com/anonymous5l/console"
 	// "github.com/valyala/fasthttp"
+	"github.com/anonymous5l/goflow/general"
+	"github.com/anonymous5l/goflow/interfaces"
 	"github.com/mitchellh/mapstructure"
-	"goflow/general"
-	"goflow/interfaces"
 	"reflect"
 	"strings"
 )

@@ -1,0 +1,10 @@
+[listen]
+type = "tcp"
+addr = "127.0.0.1:8080"
+
+[environment]
+debug = true
+
+[[flow]]
+name = "hello"
+path = "hello_world/hello_world.so"

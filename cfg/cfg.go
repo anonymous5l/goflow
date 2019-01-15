@@ -4,9 +4,9 @@ import (
 	"errors"
 	"github.com/BurntSushi/toml"
 	"github.com/anonymous5l/console"
-	"goflow/impl"
-	"goflow/interfaces"
-	"goflow/utils"
+	"github.com/anonymous5l/goflow/impl"
+	"github.com/anonymous5l/goflow/interfaces"
+	"github.com/anonymous5l/goflow/utils"
 	"plugin"
 )
 

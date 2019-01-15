@@ -1,7 +1,7 @@
 package interfaces
 
 import (
-	"goflow/general"
+	"github.com/anonymous5l/goflow/general"
 )
 
 type Context interface {

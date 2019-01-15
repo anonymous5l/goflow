@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 	"github.com/anonymous5l/console"
+	"github.com/anonymous5l/goflow/cfg"
+	"github.com/anonymous5l/goflow/impl"
 	"github.com/valyala/fasthttp"
-	"goflow/cfg"
-	"goflow/impl"
 	"net"
 	"os"
 )

@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"github.com/anonymous5l/console"
+	"github.com/anonymous5l/goflow/general"
+	"github.com/anonymous5l/goflow/interfaces"
+	"github.com/anonymous5l/goflow/utils"
 	"github.com/valyala/fasthttp"
-	"goflow/general"
-	"goflow/interfaces"
-	"goflow/utils"
 	"plugin"
 	"reflect"
 )
