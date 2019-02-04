@@ -1,4 +1,4 @@
-package hello_world
+package main
 
 import (
 	"github.com/anonymous5l/console"
@@ -17,6 +17,10 @@ func Logic(req interfaces.Request) error {
 
 	console.Log("Hello World")
 
+	// make panic test response
+	// a := []int{1, 2}
+	// console.Log("make panic %d", a[3])
+
 	ctx := req.GetContext()
 	ctx.SetBody([]byte("Hello World!"))
 
@@ -30,16 +34,16 @@ func LogicAfter(req interfaces.Request) error {
 	return nil
 }
 
-func FlowInit(ctx interfaces.Context, params interface{}) error {
+func Init(ctx interfaces.Context, scope interfaces.Scope, params interface{}) error {
 	console.Ok("mount hello world")
 
 	// all request through `Logic`
-	ctx.BeforeMiddleware(LogicBefore)
+	scope.Before(LogicBefore)
 
-	ctx.Register("/", general.GET, Logic)
+	scope.Register(general.GET, "/", Logic)
 
 	// all request end `LogicAfter`
-	ctx.AfterMiddleware(LogicAfter)
+	scope.After(LogicAfter)
 
 	return nil
 }

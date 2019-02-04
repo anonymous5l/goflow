@@ -108,7 +108,7 @@ func before_params_check(req interfaces.Request) error {
 	return nil
 }
 
-func FlowInit(ctx interfaces.Context, params interface{}) error {
+func Init(ctx interfaces.Context, scope interfaces.Scope, params interface{}) error {
 	console.Ok("mount json params check plugin")
 
 	if p, ok := params.(map[string]interface{}); ok {
@@ -119,7 +119,7 @@ func FlowInit(ctx interfaces.Context, params interface{}) error {
 		}
 	}
 
-	ctx.BeforeMiddleware(before_params_check)
+	scope.Before(before_params_check)
 
 	return nil
 }

@@ -5,155 +5,208 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/anonymous5l/console"
 	"github.com/anonymous5l/goflow/impl"
-	"github.com/anonymous5l/goflow/interfaces"
 	"github.com/anonymous5l/goflow/utils"
-	"plugin"
+	"reflect"
+	"strings"
+	"sync"
 )
+
+var mutex *sync.RWMutex
+
+func init() {
+	mutex = &sync.RWMutex{}
+}
 
 type config_listen struct {
 	Type string `toml:"type"`
 	Addr string `toml:"addr"`
 }
 
-type config_plugin struct {
-	Name  string      `toml:"name"`
-	Path  string      `toml:"path"`
-	Extra interface{} `toml:"extra"`
-
-	p *plugin.Plugin `toml:"-"`
+type config_app struct {
+	Name string `toml:"name"`
 }
 
-var ErrOnInit = errors.New("on plugin init")
-
-func (self *config_plugin) LoadSymbol() error {
-	p, err := plugin.Open(self.Path)
-
-	if err != nil {
-		return err
-	}
-
-	self.p = p
-
-	return nil
-}
-
-type config_service struct {
-	config_plugin
-}
-
-func (self *config_service) Init(ctx interfaces.Context) (err error) {
-	defer func() {
-		if e := recover(); e != nil {
-			if ec, ok := e.(error); ok {
-				err = ec
-			} else {
-				err = ErrOnInit
-			}
-
-			console.Err("goflow: service init exception %s", utils.ErrorStack(6, err))
-		}
-	}()
-
-	f, err := self.p.Lookup("ServiceInit")
-
-	if err != nil {
-		return err
-	}
-
-	err = f.(func(interfaces.Context, interface{}) error)(ctx, self.Extra)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-type config_flow struct {
-	config_plugin
-}
-
-func (self *config_flow) Init(ctx interfaces.Context) (err error) {
-	defer func() {
-		if e := recover(); e != nil {
-			if ec, ok := e.(error); ok {
-				err = ec
-			} else {
-				err = ErrOnInit
-			}
-
-			console.Err("goflow: flow init exception %s", utils.ErrorStack(6, err))
-		}
-	}()
-
-	f, err := self.p.Lookup("FlowInit")
-
-	if err != nil {
-		return err
-	}
-
-	err = f.(func(interfaces.Context, interface{}) error)(ctx, self.Extra)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-type config struct {
+type Config struct {
+	App         *config_app            `toml:"app"`
 	Listen      *config_listen         `toml:"listen"`
 	Services    []*config_service      `toml:"service"`
 	Flow        []*config_flow         `toml:"flow"`
 	Environment map[string]interface{} `toml:"environment"`
 }
 
-var Listen *config_listen
-var Services []*config_service
-var Flow []*config_flow
-var Environment map[string]interface{}
+var mServices []*config_service
+var mFlow []*config_flow
 
-func InitConfig(path string) (*impl.ContextImpl, error) {
-	var cfg *config
+var ErrNeedShutdown = errors.New("shutdown restart")
+
+func Unload(ctx *impl.ContextImpl, p *config_plugin, uninitFunc func(*impl.ContextImpl) error) error {
+	if p.status&Complated == Complated || p.status&Reloading == Reloading {
+		err := uninitFunc(ctx)
+
+		if err != nil {
+			console.Err("goflow: unload plugin failed! %s %s", p.Name, err)
+			p.status = Damaged
+			return err
+		}
+	}
+
+	return nil
+}
+
+func Reload(ctx *impl.ContextImpl, plugin *config_plugin, uninitFunc func(*impl.ContextImpl) error, initFunc func(*impl.ContextImpl) error) error {
+	if plugin.status == Uninitialized {
+		if plugin.fh == nil {
+			fh, err := NewHashFile(plugin.Path)
+
+			if err != nil {
+				console.Err("goflow: update hash failed! %s `%s`", plugin.Name, plugin.Path)
+				plugin.status = Damaged
+				return err
+			}
+
+			plugin.fh = fh
+			plugin.status = Initialization
+		}
+	} else if plugin.status&Complated == Complated {
+
+		if compare, err := plugin.fh.CompareHash(); err != nil {
+			console.Err("goflow: compare hash failed! %s `%s`", plugin.Name, plugin.Path)
+			plugin.status = Damaged
+			return err
+		} else if !compare {
+			plugin.status = Reloading
+		}
+	} else {
+		// console.Debug("goflow: skip %s cause status in %s", plugin.Name, plugin.status.String())
+		return nil
+	}
+
+	if plugin.status&Reloading == Reloading {
+		// console.Debug("reloading plugin %p", plugin)
+		if err := Unload(ctx, plugin, uninitFunc); err != nil {
+			return err
+		}
+		return ErrNeedShutdown
+	}
+
+	if plugin.status&Complated != Complated {
+		if err := plugin.LoadSymbol(); err != nil {
+			console.Err("goflow: can't load `%s` plugin! %s", plugin.Name, err)
+			plugin.status = Damaged
+			return err
+		} else {
+			if err := initFunc(ctx); err != nil {
+				console.Err("goflow: init plugin `%s` unexcept exception: %s", plugin.Name, err)
+				plugin.status = Damaged
+				return err
+			}
+
+			// console.Debug("init plugin success %s %p", plugin.Name, plugin)
+			plugin.status = Complated
+		}
+	}
+	// } else {
+	// 	// console.Debug("nothing to change")
+	// }
+
+	return nil
+}
+
+func CrossCompare(t interface{}, p interface{}) int {
+	switch reflect.TypeOf(t).Kind() {
+	case reflect.Slice:
+		s := reflect.ValueOf(t)
+		d := reflect.ValueOf(p).Elem()
+
+		for i := 0; i < s.Len(); i++ {
+			sname := s.Index(i).Elem().FieldByName("Path").String()
+			dname := d.FieldByName("Path").String()
+
+			if strings.Compare(sname, dname) == 0 {
+				return i
+			}
+		}
+	}
+
+	return -1
+}
+
+func ReloadConfig(ctx *impl.ContextImpl, path string) (*Config, *impl.ContextImpl, error) {
+	var cfg *Config
 
 	if _, err := toml.DecodeFile(path, &cfg); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	ctx := impl.NewContextImpl(cfg.Environment)
+	if cfg.App == nil {
+		cfg.App = new(config_app)
+		cfg.App.Name = utils.GetRandomString(8, utils.STR_RANDOM)
+	}
 
-	Listen = cfg.Listen
+	if ctx == nil {
+		ctx = impl.NewContextImpl(cfg.Environment)
+	} else {
+		ctx.SwitchEnv(cfg.Environment)
+	}
 
-	for _, v := range cfg.Services {
-		if err := v.LoadSymbol(); err != nil {
-			console.Err("goflow: can't load `%s` service!", v.Name)
-		} else {
-			if err := v.Init(ctx); err == nil {
-				// register to context
-				if err := ctx.RegisterService(v.Name, v.p); err != nil {
-					console.Err("goflow: already exists service `%s`", v.Name)
-				}
-			} else {
-				console.Err("goflow: init service `%s` unexcept exception: %s", v.Name, err)
-			}
+	mutex.Lock()
+
+	defer mutex.Unlock()
+
+	// dected change remove old service
+	for _, v := range mServices {
+		if s := CrossCompare(cfg.Services, v); s == -1 {
+			Unload(ctx, &v.config_plugin, v.Uninit)
 		}
 	}
 
-	Services = cfg.Services
+	// dected change add or modify
+	for i, v := range cfg.Services {
+		if s := CrossCompare(mServices, v); s >= 0 {
+			oldService := mServices[s]
+			oldService.Name = v.Name
+			oldService.Extra = v.Extra
 
-	for _, v := range cfg.Flow {
-		if err := v.LoadSymbol(); err != nil {
-			console.Err("goflow: can't load `%s` flow! %s", v.Name, err)
-		} else {
-			if err := v.Init(ctx); err != nil {
-				console.Err("goflow: init flow `%s` unexcept exception: %s", v.Name, err)
+			cfg.Services[i] = oldService
+
+			Reload(ctx, &oldService.config_plugin, oldService.Uninit, oldService.Init)
+
+			if oldService.status&Reloading == Reloading {
+				return nil, nil, ErrNeedShutdown
 			}
+		} else {
+			Reload(ctx, &v.config_plugin, v.Uninit, v.Init)
 		}
 	}
 
-	Flow = cfg.Flow
+	// dected change remove old flow
+	for _, v := range mFlow {
+		if s := CrossCompare(cfg.Flow, v); s == -1 {
+			Unload(ctx, &v.config_plugin, v.Uninit)
+		}
+	}
 
-	Environment = cfg.Environment
+	// dected change add or modify
+	for i, v := range cfg.Flow {
+		if s := CrossCompare(mFlow, v); s >= 0 {
+			oldFlow := mFlow[s]
+			oldFlow.Name = v.Name
+			oldFlow.Extra = v.Extra
 
-	return ctx, nil
+			cfg.Flow[i] = oldFlow
+
+			Reload(ctx, &oldFlow.config_plugin, oldFlow.Uninit, oldFlow.Init)
+
+			if oldFlow.status&Reloading == Reloading {
+				return nil, nil, ErrNeedShutdown
+			}
+		} else {
+			Reload(ctx, &v.config_plugin, v.Uninit, v.Init)
+		}
+	}
+
+	mServices = cfg.Services
+	mFlow = cfg.Flow
+
+	return cfg, ctx, nil
 }

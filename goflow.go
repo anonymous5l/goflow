@@ -1,72 +1,56 @@
 package main
 
 import (
-	"fmt"
+	"flag"
 	"github.com/anonymous5l/console"
-	"github.com/anonymous5l/goflow/cfg"
-	"github.com/anonymous5l/goflow/impl"
-	"github.com/valyala/fasthttp"
-	"net"
+	"github.com/anonymous5l/goflow/app"
 	"os"
+	"os/exec"
+	"strconv"
 )
-
-var coreCtx *impl.ContextImpl
-
-func getListener(t string, addr string) (net.Listener, error) {
-	if t == "unix" {
-		if err := os.Remove(addr); err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("fasthttp: unexpected error when trying to remove unix socket file %q: %s", addr, err)
-		}
-	}
-	ln, err := net.Listen(t, addr)
-	if err != nil {
-		return nil, err
-	}
-	if t == "unix" {
-		if err = os.Chmod(addr, os.ModePerm); err != nil {
-			return nil, fmt.Errorf("fasthttp: cannot chmod %#o for %q: %s", os.ModePerm, addr, err)
-		}
-	}
-	return ln, nil
-}
-
-func requestHandle(ctx *fasthttp.RequestCtx) {
-	coreCtx.Handle(ctx)
-}
 
 // for main flow
 func main() {
-	var err error
+	config := flag.String("c", "flow.toml", "config path")
+	pid := flag.Int("p", -1, "parent process id")
 
-	args := os.Args
-	argc := len(args)
+	flag.Parse()
 
-	config := "flow.toml"
+	if *pid == -1 {
+		for {
+			// child agent
+			cmd := exec.Command(os.Args[0], "-c", *config, "-p", strconv.Itoa(os.Getpid()))
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			err := cmd.Run()
 
-	if argc > 1 {
-		config = args[1]
-	}
+			if err != nil {
+				console.Err("goflow: child process exit with error %s! ", err)
+				break
+			}
 
-	coreCtx, err = cfg.InitConfig(config)
+			console.Ok("goflow: reload child process!")
+		}
 
-	if err != nil {
-		console.Err("goflow: load config %s", err)
 		return
 	}
 
-	ln, err := getListener(cfg.Listen.Type, cfg.Listen.Addr)
+	a, err := app.NewWebApplication(*config)
 
 	if err != nil {
-		console.Err("goflow: getListener %s", err)
+		console.Err("goflow: new application failed! %s", err)
 		return
 	}
 
-	console.Ok("goflow: running on %s %s", cfg.Listen.Type, cfg.Listen.Addr)
+	go func() {
+		err = a.Loop()
 
-	fasthttp.Serve(ln, requestHandle)
+		if err != nil {
+			console.Err("goflow: %s", err)
+			return
+		}
+	}()
 
-	if err != nil {
-		console.Err("fasthttp: %s", err)
-		return
-	}
+	a.Watcher()
 }

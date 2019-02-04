@@ -1,15 +1,14 @@
 package impl
 
 import (
-	"bytes"
 	"errors"
 	"github.com/anonymous5l/console"
 	"github.com/anonymous5l/goflow/general"
 	"github.com/anonymous5l/goflow/interfaces"
-	"github.com/anonymous5l/goflow/utils"
 	"github.com/valyala/fasthttp"
 	"plugin"
 	"reflect"
+	"sync"
 )
 
 type FlowContext struct {
@@ -17,17 +16,14 @@ type FlowContext struct {
 }
 
 type ServiceContext struct {
-	cache map[string]interface{}
-
 	p *plugin.Plugin
 }
 
 type ContextImpl struct {
-	amiddleware []*FlowContext
-	bmiddleware []*FlowContext
-	router      map[general.ContextHandleMethod]map[string][]*FlowContext
-	services    map[string]*ServiceContext
-	env         map[string]interface{}
+	scope    []*ScopeImpl
+	services map[string]*ServiceContext
+	env      map[string]interface{}
+	mutex    *sync.RWMutex
 }
 
 // errors
@@ -36,67 +32,66 @@ var ErrServiceAlreadyExists = errors.New("services already exists")
 var ErrServiceNull = errors.New("services can't be null")
 var ErrServiceNotFound = errors.New("services not found")
 var ErrExecute = errors.New("invoke failed!")
-var ErrFlowInner = errors.New("flow exception")
 
 func NewContextImpl(env map[string]interface{}) *ContextImpl {
-	r := make(map[general.ContextHandleMethod]map[string][]*FlowContext)
 	s := make(map[string]*ServiceContext)
 
 	return &ContextImpl{
-		router:   r,
 		services: s,
 		env:      env,
+		mutex:    &sync.RWMutex{},
 	}
 }
 
-func (ctx *ContextImpl) Register(method general.ContextHandleMethod, path string, handle func(interfaces.Request) error) error {
-	_, ok := ctx.router[method]
-
-	if !ok {
-		ctx.router[method] = make(map[string][]*FlowContext)
-	}
-
-	arr, _ := ctx.router[method][path]
-
-	ctx.router[method][path] = append(arr, &FlowContext{
-		handle: handle,
-	})
-
-	return nil
-}
-
-func (ctx *ContextImpl) BeforeMiddleware(handle func(interfaces.Request) error) error {
-	ctx.bmiddleware = append(ctx.bmiddleware, &FlowContext{
-		handle: handle,
-	})
-
-	return nil
-}
-
-func (ctx *ContextImpl) AfterMiddleware(handle func(interfaces.Request) error) error {
-	ctx.amiddleware = append(ctx.amiddleware, &FlowContext{
-		handle: handle,
-	})
-
-	return nil
+func (ctx *ContextImpl) SwitchEnv(env map[string]interface{}) {
+	ctx.mutex.Lock()
+	ctx.env = env
+	ctx.mutex.Unlock()
 }
 
 func (ctx *ContextImpl) RegisterService(name string, p *plugin.Plugin) error {
-
 	if p == nil {
 		return ErrServiceNull
 	}
 
+	ctx.mutex.Lock()
+
 	if _, ok := ctx.services[name]; ok {
+		ctx.mutex.Unlock()
 		return ErrServiceAlreadyExists
 	}
 
 	ctx.services[name] = &ServiceContext{
-		cache: make(map[string]interface{}),
-		p:     p,
+		p: p,
 	}
 
+	ctx.mutex.Unlock()
 	return nil
+}
+
+func (ctx *ContextImpl) UnregisterService(name string) error {
+	ctx.mutex.Lock()
+
+	if _, ok := ctx.services[name]; ok {
+		ctx.mutex.Unlock()
+		return ErrServiceNotFound
+	}
+
+	delete(ctx.services, name)
+
+	ctx.mutex.Unlock()
+
+	return nil
+}
+
+func (ctx *ContextImpl) IterServices(f func(string, *ServiceContext)) {
+	ctx.mutex.RLock()
+
+	for k, v := range ctx.services {
+		f(k, v)
+	}
+
+	ctx.mutex.RUnlock()
 }
 
 func (ctx *ContextImpl) Invoke(name string, method string, args ...interface{}) (res []interface{}, err error) {
@@ -119,15 +114,10 @@ func (ctx *ContextImpl) Invoke(name string, method string, args ...interface{}) 
 	var member interface{}
 
 	if p, ok := ctx.services[name]; ok {
-		if f, ok := p.cache[method]; ok {
-			member = f
+		if f, err := p.p.Lookup(method); err != nil {
+			return nil, err
 		} else {
-			if f, err := p.p.Lookup(method); err != nil {
-				return nil, err
-			} else {
-				member = f
-				p.cache[name] = member
-			}
+			member = f
 		}
 
 		res, err = member.(func(...interface{}) ([]interface{}, error))(args...)
@@ -141,15 +131,10 @@ func (ctx *ContextImpl) RefMember(name string, m string) (interface{}, error) {
 	var member interface{}
 
 	if p, ok := ctx.services[name]; ok {
-		if f, ok := p.cache[m]; ok {
-			member = f
+		if f, err := p.p.Lookup(m); err != nil {
+			return nil, err
 		} else {
-			if f, err := p.p.Lookup(m); err != nil {
-				return nil, err
-			} else {
-				p.cache[name] = f
-				member = f
-			}
+			member = f
 		}
 
 		return member, nil
@@ -182,7 +167,9 @@ func (ctx *ContextImpl) CompareMember(member interface{}, service string, name s
 }
 
 func (ctx *ContextImpl) GetEnv(key string) (interface{}, bool) {
+	ctx.mutex.RLock()
 	v, ok := ctx.env[key]
+	ctx.mutex.RUnlock()
 	return v, ok
 }
 
@@ -195,92 +182,49 @@ func (ctx *ContextImpl) GetMapEnv(key string) (map[string]interface{}, bool) {
 	return nil, false
 }
 
-func (ctx *ContextImpl) Handle(handle *fasthttp.RequestCtx) (err error) {
-
-	defer func() {
-		if e := recover(); e != nil {
-			console.Err("goflow: context handle exception %s", e)
-
-			handle.Response.Reset()
-			handle.SetStatusCode(fasthttp.StatusInternalServerError)
-
-			var buffer bytes.Buffer
-			buffer.WriteString("Internal Server Error")
-
-			var ok bool
-
-			err, ok = e.(error)
-
-			if !ok {
-				err = ErrFlowInner
-			}
-
-			// special env
-
-			if d, ok := ctx.GetEnv("debug"); ok {
-				if debug, ok := d.(bool); ok && debug {
-					// print internal server error stack
-					buffer.WriteString("\n=====================\n")
-
-					// print error stack for plugin skip top stack
-					buffer.WriteString(utils.ErrorStack(6, err))
-				}
-			}
-
-			handle.SetBody(buffer.Bytes())
+func (ctx *ContextImpl) findScope(scope *ScopeImpl) (int, *ScopeImpl) {
+	for i, v := range ctx.scope {
+		if v == scope {
+			return i, v
 		}
-	}()
+	}
 
-	p := string(handle.Path())
-	m := string(handle.Method())
+	return -1, nil
+}
 
-	console.Log("goflow: %s %s", m, p)
+func (ctx *ContextImpl) RegisterScope(scope *ScopeImpl) {
+	ctx.mutex.Lock()
+	if i, _ := ctx.findScope(scope); i == -1 {
+		ctx.scope = append(ctx.scope, scope)
+	}
+	ctx.mutex.Unlock()
+}
 
-	request := NewRequestImpl(handle)
+func (ctx *ContextImpl) UnregisterScope(scope *ScopeImpl) {
+	// console.Log("unregister scope")
 
-	for _, m := range ctx.bmiddleware {
-		err = m.handle(request)
+	ctx.mutex.Lock()
+	if i, v := ctx.findScope(scope); v != nil {
+		// console.Log("dispose scope %d %p", i, v)
+		v.Dispose()
 
-		if err == general.End {
-			break
-		}
+		ctx.scope = append(ctx.scope[:i], ctx.scope[i+1:]...)
+	}
+	ctx.mutex.Unlock()
+}
+
+func (ctx *ContextImpl) Handle(handle *fasthttp.RequestCtx) error {
+	ctx.mutex.RLock()
+
+	for _, s := range ctx.scope {
+		err := s.Handle(handle)
 
 		if err == general.Abort {
-			return nil
-		}
-	}
-
-	if d, ok := ctx.router[general.ContextHandleMethod(m)]; ok {
-		if farry, ok := d[p]; ok {
-			for _, f := range farry {
-				err = f.handle(request)
-
-				if err == general.End {
-					break
-				}
-
-				if err == general.Abort {
-					return nil
-				}
-
-				if err != nil {
-					console.Err("goflow: %s %s flow error %s", m, p, err)
-				}
-			}
-		}
-	}
-
-	for _, m := range ctx.amiddleware {
-		err = m.handle(request)
-
-		if err == general.End {
 			break
 		}
-
-		if err == general.Abort {
-			return nil
-		}
 	}
+
+	ctx.mutex.RUnlock()
 
 	return nil
 }
