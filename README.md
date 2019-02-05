@@ -186,4 +186,4 @@ func Init(ctx interfaces.Context, scope interfaces.Scope, params interface{}) er
 
 ```
 
-[Go Doc](https://godoc.org/github.com/anonymous5l/gomysql)
+[Go Doc](https://godoc.org/github.com/anonymous5l/goflow)
