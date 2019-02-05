@@ -40,6 +40,7 @@ func main() {
 
 	if err != nil {
 		console.Err("goflow: new application failed! %s", err)
+		os.Exit(1)
 		return
 	}
 
@@ -48,6 +49,7 @@ func main() {
 
 		if err != nil {
 			console.Err("goflow: %s", err)
+			os.Exit(1)
 			return
 		}
 	}()

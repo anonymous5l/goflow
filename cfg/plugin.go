@@ -134,7 +134,7 @@ func (self *config_flow) Uninit(ctx *impl.ContextImpl) (err error) {
 	defer self.recoverError(&err)
 
 	if f, err := self.lookupFunc(UninitFuncName); err == nil {
-		if err := f.(func(interfaces.Context, interfaces.Scope, interface{}) error)(ctx, self.scope, self.Extra); err != nil {
+		if err := f.(func(interfaces.Context, interface{}) error)(ctx, self.Extra); err != nil {
 			return err
 		}
 	}

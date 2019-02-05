@@ -8,6 +8,12 @@ addr = "127.0.0.1:8080"
 [environment]
 debug = true
 
+[[service]]
+name = "hello_service"
+path = "hello_services/hello_services.so"
+[service.extra]
+someExtraArg = "extraArg"
+
 [[flow]]
 name = "hello"
 path = "hello_world/hello_world.so"
