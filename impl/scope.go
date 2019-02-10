@@ -71,7 +71,7 @@ func (scope *ScopeImpl) After(handle func(interfaces.Request) error) error {
 	return nil
 }
 
-func (scope *ScopeImpl) Handle(handle *fasthttp.RequestCtx) (err error) {
+func (scope *ScopeImpl) Handle(handle *fasthttp.RequestCtx, m string, p string) (err error) {
 	defer func() {
 		scope.mutex.RUnlock()
 	}()
@@ -111,11 +111,6 @@ func (scope *ScopeImpl) Handle(handle *fasthttp.RequestCtx) (err error) {
 	}()
 
 	scope.mutex.RLock()
-
-	p := string(handle.Path())
-	m := string(handle.Method())
-
-	console.Log("goflow: %s %s", m, p)
 
 	request := NewRequestImpl(handle)
 

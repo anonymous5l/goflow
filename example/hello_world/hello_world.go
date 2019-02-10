@@ -49,6 +49,8 @@ func LogicAfter(req interfaces.Request) error {
 
 func Uninit(ctx interfaces.Context, params interface{}) error {
 	console.Debug("hello_world: uninit")
+
+	return nil
 }
 
 func Init(ctx interfaces.Context, scope interfaces.Scope, params interface{}) error {

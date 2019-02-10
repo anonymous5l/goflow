@@ -216,8 +216,13 @@ func (ctx *ContextImpl) UnregisterScope(scope *ScopeImpl) {
 func (ctx *ContextImpl) Handle(handle *fasthttp.RequestCtx) error {
 	ctx.mutex.RLock()
 
+	p := string(handle.Path())
+	m := string(handle.Method())
+
+	console.Log("goflow: %s %s", m, p)
+
 	for _, s := range ctx.scope {
-		err := s.Handle(handle)
+		err := s.Handle(handle, m, p)
 
 		if err == general.Abort {
 			break
