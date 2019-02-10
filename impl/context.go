@@ -219,10 +219,12 @@ func (ctx *ContextImpl) Handle(handle *fasthttp.RequestCtx) error {
 	p := string(handle.Path())
 	m := string(handle.Method())
 
+	r := NewRequestImpl(handle)
+
 	console.Log("goflow: %s %s", m, p)
 
 	for _, s := range ctx.scope {
-		err := s.Handle(handle, m, p)
+		err := s.Handle(handle, r, m, p)
 
 		if err == general.Abort {
 			break

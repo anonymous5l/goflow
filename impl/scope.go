@@ -71,7 +71,7 @@ func (scope *ScopeImpl) After(handle func(interfaces.Request) error) error {
 	return nil
 }
 
-func (scope *ScopeImpl) Handle(handle *fasthttp.RequestCtx, m string, p string) (err error) {
+func (scope *ScopeImpl) Handle(handle *fasthttp.RequestCtx, request interfaces.Request, m string, p string) (err error) {
 	defer func() {
 		scope.mutex.RUnlock()
 	}()
@@ -112,7 +112,7 @@ func (scope *ScopeImpl) Handle(handle *fasthttp.RequestCtx, m string, p string) 
 
 	scope.mutex.RLock()
 
-	request := NewRequestImpl(handle)
+	// request := NewRequestImpl(handle)
 
 	for _, m := range scope.bmiddleware {
 		err = m.handle(request)
