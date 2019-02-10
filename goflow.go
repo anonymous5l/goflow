@@ -6,8 +6,13 @@ import (
 	"github.com/anonymous5l/goflow/app"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
+	"syscall"
 )
+
+var cmd *exec.Cmd
+var mainapp *app.WebApplication
 
 // for main flow
 func main() {
@@ -16,27 +21,46 @@ func main() {
 
 	flag.Parse()
 
-	if *pid == -1 {
-		for {
-			// child agent
-			cmd := exec.Command(os.Args[0], "-c", *config, "-p", strconv.Itoa(os.Getpid()))
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			err := cmd.Run()
+	c := make(chan os.Signal)
 
-			if err != nil {
-				console.Err("goflow: child process exit with error %s! ", err)
-				break
+	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	go func() {
+		for _ = range c {
+			if *pid == -1 {
+				// wait cmd processer
+				// notify child processer
+				cmd.Process.Signal(syscall.SIGQUIT)
+			} else {
+				mainapp.Shutdown()
 			}
-
-			console.Ok("goflow: reload child process!")
 		}
+	}()
+
+	if *pid == -1 {
+		// child agent
+		cmd = exec.Command(os.Args[0], "-c", *config, "-p", strconv.Itoa(os.Getpid()))
+
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Start(); err != nil {
+			console.Err("goflow: failed to start command: %s", err)
+		}
+
+		if err := cmd.Wait(); err != nil {
+			console.Err("goflow: failed to wait command: %s", err)
+		}
+
+		console.Ok("goflow: child done process!")
 
 		return
 	}
 
-	a, err := app.NewWebApplication(*config)
+	var err error
+
+	mainapp, err = app.NewWebApplication(*config)
 
 	if err != nil {
 		console.Err("goflow: new application failed! %s", err)
@@ -45,7 +69,7 @@ func main() {
 	}
 
 	go func() {
-		err = a.Loop()
+		err = mainapp.Loop()
 
 		if err != nil {
 			console.Err("goflow: %s", err)
@@ -54,5 +78,5 @@ func main() {
 		}
 	}()
 
-	a.Watcher()
+	mainapp.Watcher()
 }
