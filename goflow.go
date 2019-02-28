@@ -31,7 +31,9 @@ func main() {
 			if *pid == -1 {
 				// wait cmd processer
 				// notify child processer
-				cmd.Process.Signal(syscall.SIGQUIT)
+				if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+					console.Err("goflow: notify to child process failed! %s", err)
+				}
 			} else {
 				mainapp.Shutdown()
 			}
