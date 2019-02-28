@@ -1,14 +1,17 @@
 package impl
 
 import (
+	"bytes"
 	"errors"
-	"github.com/anonymous5l/console"
-	"github.com/anonymous5l/goflow/general"
-	"github.com/anonymous5l/goflow/interfaces"
-	"github.com/valyala/fasthttp"
 	"plugin"
 	"reflect"
 	"sync"
+
+	"github.com/anonymous5l/console"
+	"github.com/anonymous5l/goflow/general"
+	"github.com/anonymous5l/goflow/interfaces"
+	"github.com/anonymous5l/goflow/utils"
+	"github.com/valyala/fasthttp"
 )
 
 type FlowContext struct {
@@ -213,7 +216,45 @@ func (ctx *ContextImpl) UnregisterScope(scope *ScopeImpl) {
 	ctx.mutex.Unlock()
 }
 
-func (ctx *ContextImpl) Handle(handle *fasthttp.RequestCtx) error {
+func (ctx *ContextImpl) Handle(handle *fasthttp.RequestCtx) (err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			console.Err("goflow: context handle exception %s", e)
+
+			handle.Response.Reset()
+			handle.SetStatusCode(fasthttp.StatusInternalServerError)
+
+			var buffer bytes.Buffer
+			buffer.WriteString("Internal Server Error")
+
+			var ok bool
+
+			err, ok = e.(error)
+
+			if !ok {
+				err = ErrFlowInner
+			}
+
+			// special env
+
+			if d, ok := ctx.GetEnv("debug"); ok {
+				if debug, ok := d.(bool); ok && debug {
+					// print internal server error stack
+					buffer.WriteString("\n=====================\n")
+
+					// print error stack for plugin skip top stack
+					buffer.WriteString(utils.ErrorStack(6, err))
+				}
+			}
+
+			handle.SetBody(buffer.Bytes())
+		}
+	}()
+
+	defer func() {
+		ctx.mutex.RUnlock()
+	}()
+
 	ctx.mutex.RLock()
 
 	p := string(handle.Path())
@@ -223,15 +264,26 @@ func (ctx *ContextImpl) Handle(handle *fasthttp.RequestCtx) error {
 
 	console.Log("goflow: %s %s", m, p)
 
+	// exec before
 	for _, s := range ctx.scope {
-		err := s.Handle(handle, r, m, p)
-
-		if err == general.Abort {
-			break
+		if err = s.HandleBefore(handle, r, m, p); err == general.Abort {
+			return
 		}
 	}
 
-	ctx.mutex.RUnlock()
+	// exec handle
+	for _, s := range ctx.scope {
+		if err = s.Handle(handle, r, m, p); err == general.Abort {
+			return
+		}
+	}
+
+	// exec after
+	for _, s := range ctx.scope {
+		if err = s.HandleAfter(handle, r, m, p); err == general.Abort {
+			return
+		}
+	}
 
 	return nil
 }
