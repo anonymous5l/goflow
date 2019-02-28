@@ -64,6 +64,7 @@ func main() {
 			}
 
 			console.Ok("goflow: child done process!")
+			break
 		}
 
 		return
